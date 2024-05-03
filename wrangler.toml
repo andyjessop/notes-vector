@@ -3,6 +3,14 @@ name = "obsidian-vector"
 main = "src/index.ts"
 compatibility_date = "2024-04-23"
 
+[[vectorize]]
+binding = "VECTORIZE_INDEX"
+index_name = "obsidian-vector-index"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "13819387bcca4273be6e0142501103df"
+
 # Automatically place your workloads in an optimal location to minimize latency.
 # If you are running back-end logic in a Worker, running it closer to your back-end infrastructure
 # rather than the end user may result in better performance.
