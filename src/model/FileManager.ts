@@ -45,25 +45,24 @@ export class FileManager {
 	async addFile(file: RemoteFile) {
 		try {
 			this.#logger.info(
-				`Adding file ${file.basename} to vault key ${this.#vaultKey}.`,
+				`Adding file ${file.path} to vault key ${this.#vaultKey}.`,
 			);
 
 			const files = await this.getFiles();
 
 			// check if file exists first, and overwrite if it does
-			const existingFileIndex = files.findIndex(
-				(f) => f.basename === file.basename,
-			);
+			const existingFileIndex = files.findIndex((f) => f.path === file.path);
 
 			// Defensively remove content
-			const { content, ...rest } = file as RemoteFileWithContent;
+			const { basename, path, mtime, type } = file as RemoteFileWithContent;
+			const rest = { basename, path, mtime, type };
 
 			if (existingFileIndex !== -1) {
-				this.#logger.info(`File ${file.basename} already exists, updating.`);
+				this.#logger.info(`File ${file.path} already exists, updating.`);
 
 				files[existingFileIndex] = rest;
 			} else {
-				this.#logger.info(`File ${file.basename} does not exist, adding.`);
+				this.#logger.info(`File ${file.path} does not exist, adding.`);
 
 				files.push(rest);
 			}
@@ -71,13 +70,13 @@ export class FileManager {
 			await this.#kv.put(`${this.#vaultKey}_files`, JSON.stringify(files));
 
 			this.#logger.success(
-				`Successfully added file ${file.basename} to vault key ${this.#vaultKey}.`,
+				`Successfully added file ${file.path} to vault key ${this.#vaultKey}.`,
 			);
 
 			return true;
 		} catch (e) {
 			this.#logger.error(
-				`Failed to add file ${file.basename} to vault key ${this.#vaultKey}.`,
+				`Failed to add file ${file.path} to vault key ${this.#vaultKey}.`,
 			);
 
 			return false;
@@ -87,20 +86,18 @@ export class FileManager {
 	async deleteFile(file: RemoteFile) {
 		try {
 			this.#logger.info(
-				`Deleting file ${file.basename} from vault key ${this.#vaultKey}.`,
+				`Deleting file ${file.path} from vault key ${this.#vaultKey}.`,
 			);
 
 			const files = await this.getFiles();
-			const existingFileIndex = files.findIndex(
-				(f) => f.basename === file.basename,
-			);
+			const existingFileIndex = files.findIndex((f) => f.path === file.path);
 
 			if (existingFileIndex !== -1) {
-				this.#logger.info(`File ${file.basename} found, deleting from array.`);
+				this.#logger.info(`File ${file.path} found, deleting from array.`);
 
 				files.splice(existingFileIndex, 1);
 			} else {
-				this.#logger.error(`File ${file.basename} not found.`);
+				this.#logger.error(`File ${file.path} not found.`);
 				return true;
 			}
 
@@ -109,13 +106,13 @@ export class FileManager {
 			await this.#kv.put(`${this.#vaultKey}_files`, JSON.stringify(files));
 
 			this.#logger.success(
-				`Successfully deleted file ${file.basename} from vault key ${this.#vaultKey}.`,
+				`Successfully deleted file ${file.path} from vault key ${this.#vaultKey}.`,
 			);
 
 			return true;
 		} catch (e) {
 			this.#logger.error(
-				`Failed to delete file ${file.basename} from vault key ${this.#vaultKey}.`,
+				`Failed to delete file ${file.path} from vault key ${this.#vaultKey}.`,
 			);
 
 			return false;

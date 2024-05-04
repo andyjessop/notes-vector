@@ -10,6 +10,7 @@ import {
 	parseMarkdownSections,
 } from "./parse-markdown-sections";
 import type { Logger } from "../logger/Logger";
+import { create40CharHash } from "utils/create-40-char-hash";
 
 export class VectorManager {
 	#kv: KVNamespace;
@@ -32,30 +33,40 @@ export class VectorManager {
 		this.#vectorize = vectorize;
 	}
 
-	buildKvVectorIdKey(basename: string) {
-		return `${this.#vaultKey}_vector-ids_${basename}`;
+	buildKvVectorIdKey(path: string) {
+		return `${this.#vaultKey}_vector-ids_${path}`;
+	}
+
+	buildKvEmbeddingIdKey(path: string, index: number) {
+		// hash the path to avoid hitting the key size limit (64 characters)
+		return create40CharHash(`${this.#vaultKey}_embedding-id_${path}_${index}`);
 	}
 
 	async addEmbeddings(file: RemoteFileWithContent) {
-		this.#logger.info(`Adding embeddings for file ${file.basename}.`);
+		this.#logger.info(`Adding embeddings for file ${file.path}.`);
 
-		const timestamp = Date.now();
+		this.#logger.info(`Parsing sections for file ${file.path}.`);
 
-		this.#logger.info(`Parsing sections for file ${file.basename}.`);
-
-		const sections = parseMarkdownSections(file.content).map((section, i) => ({
-			...file,
-			content: buildSectionContent(section),
-			id: `${file.basename}-${i}`,
-		}));
-
-		this.#logger.success(
-			`Successfully parsed sections for file ${file.basename}.`,
+		const sectionsPromises = parseMarkdownSections(file.content).map(
+			async (section, i) => ({
+				...file,
+				content: buildSectionContent(section),
+				section: {
+					heading: section.heading,
+					level: section.level,
+					path: section.path,
+				},
+				id: await this.buildKvEmbeddingIdKey(file.path, i + 1),
+			}),
 		);
+
+		const sections = await Promise.all(sectionsPromises);
+
+		this.#logger.success(`Successfully parsed sections for file ${file.path}.`);
 
 		const document = {
 			...file,
-			id: file.basename,
+			id: await this.buildKvEmbeddingIdKey(file.path, 0),
 		};
 
 		const allDocuments = [document, ...sections] as Document[];
@@ -64,7 +75,7 @@ export class VectorManager {
 		const embeddings = new Set<DocumentWithVector>();
 
 		this.#logger.info(
-			`Embedding ${allDocuments.length} documents for file ${file.basename}.`,
+			`Embedding ${allDocuments.length} documents for file ${file.path}.`,
 		);
 
 		for (const document of allDocuments) {
@@ -88,97 +99,108 @@ export class VectorManager {
 				});
 			} catch (e) {
 				successful = false;
+				this.#logger.error(
+					`Failed to create embeddings for file ${file.path}. ${JSON.stringify(
+						e,
+					)}`,
+				);
 				break;
 			}
 		}
 
 		if (successful === false) {
-			this.#logger.error(
-				`Failed to embed documents for file ${file.basename}.`,
-			);
+			this.#logger.error(`Failed to embed documents for file ${file.path}.`);
 
 			return false;
 		}
 
 		this.#logger.success(
-			`Successfully created embedding documents for file ${file.basename}.`,
+			`Successfully created embedding documents for file ${file.path}.`,
 		);
 
 		this.#logger.info(
-			`Inserting ${embeddings.size} embeddings for file ${file.basename}.`,
+			`Inserting ${embeddings.size} embeddings for file ${file.path}.`,
 		);
 
 		for (const embedding of embeddings) {
-			const { id, vector, ...metadata } = embedding;
-			await this.#vectorize.insert([
-				{
-					id: embedding.id,
-					values: embedding.vector,
-					metadata,
-				},
-			]);
+			const { content, id, vector, ...metadata } = embedding;
+			try {
+				await this.#vectorize.insert([
+					{
+						id: embedding.id,
+						values: embedding.vector,
+						metadata,
+					},
+				]);
+			} catch (e) {
+				this.#logger.error(
+					`Failed to insert embedding for embedding ${JSON.stringify(
+						embedding,
+					)}}. ${JSON.stringify(e)}`,
+				);
+			}
 		}
 
 		this.#logger.success(
-			`Successfully inserted ${embeddings.size} embeddings for file ${file.basename}.`,
+			`Successfully inserted ${embeddings.size} embeddings for file ${file.path}.`,
 		);
 
 		const embeddingsArray = [...embeddings];
 
 		this.#logger.info(
-			`Storing ${embeddingsArray.length} vector ids for file ${file.basename}.`,
+			`Storing ${embeddingsArray.length} vector ids for file ${file.path}.`,
 		);
 
 		await this.#kv.put(
-			this.buildKvVectorIdKey(file.basename),
+			this.buildKvVectorIdKey(file.path),
 			JSON.stringify(embeddingsArray.map((embedding) => embedding.id)),
 		);
 
 		this.#logger.success(
-			`Successfully stored ${embeddingsArray.length} vector ids for file ${file.basename}.`,
+			`Successfully stored ${embeddingsArray.length} vector ids for file ${file.path}.`,
 		);
 
 		return embeddingsArray;
 	}
 
-	async deleteEmbeddings(file: RemoteFileWithContent) {
+	async deleteEmbeddings(file: RemoteFile) {
 		try {
-			this.#logger.info(`Deleting embeddings for file ${file.basename}.`);
+			this.#logger.info(`Deleting embeddings for file ${file.path}.`);
 
-			const key = this.buildKvVectorIdKey(file.basename);
+			const key = this.buildKvVectorIdKey(file.path);
 
 			// First delete any existing vectors for the file
 			const existingVectorIds = await this.#kv.get(key);
 
 			if (existingVectorIds) {
 				this.#logger.info(
-					`Deleting ${existingVectorIds.length} existing vectors for file ${file.basename}.`,
+					`Deleting ${existingVectorIds.length} existing vectors for file ${file.path}.`,
 				);
 
 				await this.#vectorize.deleteByIds(JSON.parse(existingVectorIds));
 				await this.#kv.delete(key);
 
 				this.#logger.success(
-					`Successfully deleted ${existingVectorIds.length} existing vectors for file ${file.basename}.`,
+					`Successfully deleted ${existingVectorIds.length} existing vectors for file ${file.path}.`,
 				);
 			} else {
-				this.#logger.info(
-					`No existing vectors found for file ${file.basename}.`,
-				);
+				this.#logger.info(`No existing vectors found for file ${file.path}.`);
 			}
 
 			return true;
 		} catch (e) {
 			this.#logger.error(
-				`Failed to delete embeddings for file ${file.basename}.`,
+				`Failed to delete embeddings for file ${file.path}. ${JSON.stringify(
+					e,
+				)}`,
 			);
 
 			return false;
 		}
 	}
 
-	async getMatches(query: string, type?: string) {
-		this.#logger.info(`Searching for matches for query: ${query}`);
+	async getQueryMatches(query: string, type?: string) {
+		this.#logger.info("Searching for matches for query.");
 
 		const embedding = await this.#openai.embeddings.create({
 			encoding_format: "float",
@@ -188,6 +210,15 @@ export class VectorManager {
 
 		const vector = embedding?.data?.[0].embedding;
 
+		if (!vector?.length) {
+			this.#logger.error("Failed to create embedding.");
+			return [];
+		}
+
+		return this.getVectorMatches(vector, type);
+	}
+
+	async getVectorMatches(vector: number[], type?: string) {
 		if (!vector?.length) {
 			this.#logger.error("Failed to create embedding.");
 			return [];

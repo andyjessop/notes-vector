@@ -50,7 +50,22 @@ export type DocumentWithVector = Document & {
 	vector: number[];
 };
 
-export type Query = {
-	text: string;
+export type BaseQuery = {
 	type?: string;
 };
+
+export type TextQuery = BaseQuery & {
+	text: string;
+};
+
+export type VectorQuery = BaseQuery & {
+	vector: number[];
+};
+
+export function isTextQuery(query: BaseQuery): query is TextQuery {
+	return (query as TextQuery).text !== undefined;
+}
+
+export function isVectorQuery(query: BaseQuery): query is VectorQuery {
+	return (query as VectorQuery).vector !== undefined;
+}
