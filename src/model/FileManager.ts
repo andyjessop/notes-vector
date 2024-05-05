@@ -1,13 +1,14 @@
 import type { Logger } from "../logger/Logger";
 import type { RemoteFile, RemoteFileWithContent } from "../types";
+import type { FileStore } from "../storage/FileStore";
 
 export class FileManager {
-	#kv: KVNamespace;
+	#fileStore: FileStore;
 	#logger: Logger;
 	#vaultKey: string;
 
-	constructor(kv: KVNamespace, logger: Logger, vaultKey: string) {
-		this.#kv = kv;
+	constructor(kv: FileStore, logger: Logger, vaultKey: string) {
+		this.#fileStore = kv;
 		this.#logger = logger;
 		this.#vaultKey = vaultKey;
 	}
@@ -16,18 +17,7 @@ export class FileManager {
 		try {
 			this.#logger.info(`Getting files for vault key ${this.#vaultKey}.`);
 
-			const filesStr = await this.#kv.get(`${this.#vaultKey}_files`);
-
-			if (filesStr === null) {
-				this.#logger.error(`No files found for vault key ${this.#vaultKey}.`);
-				await this.#kv.put(`${this.#vaultKey}_files`, JSON.stringify([]));
-
-				return [];
-			}
-
-			this.#logger.info(`Parsing files for vault key ${this.#vaultKey}.`);
-
-			const files = JSON.parse(filesStr);
+			const files = this.#fileStore.getAll();
 
 			this.#logger.info(
 				`Successfully retrieved files for vault key ${this.#vaultKey}.`,
@@ -48,26 +38,15 @@ export class FileManager {
 				`Adding file ${file.path} to vault key ${this.#vaultKey}.`,
 			);
 
-			const files = await this.getFiles();
+			const existingFile = await this.#fileStore.get(file);
 
-			// check if file exists first, and overwrite if it does
-			const existingFileIndex = files.findIndex((f) => f.path === file.path);
-
-			// Defensively remove content
-			const { basename, path, mtime, type } = file as RemoteFileWithContent;
-			const rest = { basename, path, mtime, type };
-
-			if (existingFileIndex !== -1) {
-				this.#logger.info(`File ${file.path} already exists, updating.`);
-
-				files[existingFileIndex] = rest;
-			} else {
+			if (!existingFile) {
 				this.#logger.info(`File ${file.path} does not exist, adding.`);
-
-				files.push(rest);
+			} else {
+				this.#logger.info(`File ${file.path} already exists, updating.`);
 			}
 
-			await this.#kv.put(`${this.#vaultKey}_files`, JSON.stringify(files));
+			await this.#fileStore.put(file);
 
 			this.#logger.success(
 				`Successfully added file ${file.path} to vault key ${this.#vaultKey}.`,
@@ -89,21 +68,15 @@ export class FileManager {
 				`Deleting file ${file.path} from vault key ${this.#vaultKey}.`,
 			);
 
-			const files = await this.getFiles();
-			const existingFileIndex = files.findIndex((f) => f.path === file.path);
+			const existingFile = await this.#fileStore.get(file);
 
-			if (existingFileIndex !== -1) {
-				this.#logger.info(`File ${file.path} found, deleting from array.`);
-
-				files.splice(existingFileIndex, 1);
+			if (!existingFile) {
+				this.#logger.info(`File ${file.path} not found.`);
 			} else {
-				this.#logger.error(`File ${file.path} not found.`);
-				return true;
+				this.#logger.info(`File ${file.path} found, deleting.`);
 			}
 
-			this.#logger.info(`Updating files for vault key ${this.#vaultKey}.`);
-
-			await this.#kv.put(`${this.#vaultKey}_files`, JSON.stringify(files));
+			this.#fileStore.delete(file);
 
 			this.#logger.success(
 				`Successfully deleted file ${file.path} from vault key ${this.#vaultKey}.`,

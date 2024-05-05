@@ -5,11 +5,19 @@ compatibility_date = "2024-04-23"
 
 [[vectorize]]
 binding = "VECTORIZE_INDEX"
-index_name = "obsidian-vector-index"
+index_name = "obsidian-vector-index-2"
 
-[[kv_namespaces]]
-binding = "KV"
-id = "13819387bcca4273be6e0142501103df"
+[[durable_objects.bindings]]
+name = "FILE_STORE"
+class_name = "FileStore"
+
+[[durable_objects.bindings]]
+name = "VECTOR_IDS_STORE"
+class_name = "VectorIdsStore"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["FileStore"]
 
 # Automatically place your workloads in an optimal location to minimize latency.
 # If you are running back-end logic in a Worker, running it closer to your back-end infrastructure

@@ -1,9 +1,15 @@
 import type OpenAI from "openai";
-import type {
-	Document,
-	DocumentWithVector,
-	RemoteFile,
-	RemoteFileWithContent,
+import {
+	isDocumentMetadata,
+	isSectionMetadata,
+	type Document,
+	type DocumentMetadata,
+	type DocumentWithVector,
+	type RemoteFile,
+	type RemoteFileWithContent,
+	type Section,
+	type SectionMetadata,
+	type SectionWithVector,
 } from "../types";
 import {
 	buildSectionContent,
@@ -11,22 +17,23 @@ import {
 } from "./parse-markdown-sections";
 import type { Logger } from "../logger/Logger";
 import { create40CharHash } from "utils/create-40-char-hash";
+import type { VectorIdsStore } from "../storage/VectorIdsStore";
 
 export class VectorManager {
-	#kv: KVNamespace;
+	#vectorIdsStore: VectorIdsStore;
 	#logger: Logger;
 	#openai: OpenAI;
 	#vaultKey: string;
 	#vectorize: VectorizeIndex;
 
 	constructor(
-		kv: KVNamespace,
+		vectorIdsStore: VectorIdsStore,
 		logger: Logger,
 		openai: OpenAI,
 		vaultKey: string,
 		vectorize: VectorizeIndex,
 	) {
-		this.#kv = kv;
+		this.#vectorIdsStore = vectorIdsStore;
 		this.#logger = logger;
 		this.#openai = openai;
 		this.#vaultKey = vaultKey;
@@ -51,6 +58,7 @@ export class VectorManager {
 			async (section, i) => ({
 				...file,
 				content: buildSectionContent(section),
+				isSection: true,
 				section: {
 					heading: section.heading,
 					level: section.level,
@@ -58,7 +66,7 @@ export class VectorManager {
 				},
 				id: await this.buildKvEmbeddingIdKey(file.path, i + 1),
 			}),
-		);
+		) as Promise<Section>[];
 
 		const sections = await Promise.all(sectionsPromises);
 
@@ -66,13 +74,14 @@ export class VectorManager {
 
 		const document = {
 			...file,
+			isSection: false,
 			id: await this.buildKvEmbeddingIdKey(file.path, 0),
 		};
 
-		const allDocuments = [document, ...sections] as Document[];
+		const allDocuments = [document, ...sections] as Array<Document | Section>;
 
 		let successful = true;
-		const embeddings = new Set<DocumentWithVector>();
+		const embeddings = new Set<DocumentWithVector | SectionWithVector>();
 
 		this.#logger.info(
 			`Embedding ${allDocuments.length} documents for file ${file.path}.`,
@@ -151,9 +160,9 @@ export class VectorManager {
 			`Storing ${embeddingsArray.length} vector ids for file ${file.path}.`,
 		);
 
-		await this.#kv.put(
+		await this.#vectorIdsStore.put(
 			this.buildKvVectorIdKey(file.path),
-			JSON.stringify(embeddingsArray.map((embedding) => embedding.id)),
+			embeddingsArray.map((embedding) => embedding.id),
 		);
 
 		this.#logger.success(
@@ -170,15 +179,15 @@ export class VectorManager {
 			const key = this.buildKvVectorIdKey(file.path);
 
 			// First delete any existing vectors for the file
-			const existingVectorIds = await this.#kv.get(key);
+			const existingVectorIds = await this.#vectorIdsStore.get(key);
 
 			if (existingVectorIds) {
 				this.#logger.info(
 					`Deleting ${existingVectorIds.length} existing vectors for file ${file.path}.`,
 				);
 
-				await this.#vectorize.deleteByIds(JSON.parse(existingVectorIds));
-				await this.#kv.delete(key);
+				await this.#vectorize.deleteByIds(existingVectorIds);
+				await this.#vectorIdsStore.delete(key);
 
 				this.#logger.success(
 					`Successfully deleted ${existingVectorIds.length} existing vectors for file ${file.path}.`,
@@ -199,7 +208,7 @@ export class VectorManager {
 		}
 	}
 
-	async getQueryMatches(query: string, type?: string) {
+	async getQueryMatches(query: string, type?: string, isSection = false) {
 		this.#logger.info("Searching for matches for query.");
 
 		const embedding = await this.#openai.embeddings.create({
@@ -215,20 +224,31 @@ export class VectorManager {
 			return [];
 		}
 
-		return this.getVectorMatches(vector, type);
+		this.#logger.success("Successfully created embedding.");
+
+		return this.getVectorMatches(vector, type, isSection);
 	}
 
-	async getVectorMatches(vector: number[], type?: string) {
-		if (!vector?.length) {
-			this.#logger.error("Failed to create embedding.");
-			return [];
+	async getVectorMatches(
+		vector: number[],
+		type?: string,
+		isSection = false,
+	): Promise<Array<SectionMetadata | DocumentMetadata>> {
+		const filter = {
+			isSection,
+		} as Record<string, string | boolean>;
+
+		if (type) {
+			filter.type = type;
 		}
 
-		this.#logger.success("Successfully created embedding.");
+		this.#logger.info(
+			`Querying vector db with filter: ${JSON.stringify(filter)}`,
+		);
 
 		const queryResponse = await this.#vectorize.query(vector, {
 			topK: 20,
-			filter: type ? { type } : undefined,
+			filter: Object.keys(filter).length ? filter : undefined,
 			returnValues: true,
 			returnMetadata: true,
 		});
@@ -237,6 +257,17 @@ export class VectorManager {
 			`Successfully retrieved ${queryResponse.matches.length} matches.`,
 		);
 
-		return queryResponse.matches.map((match) => match.metadata);
+		const matches = queryResponse.matches.map((match) => match.metadata);
+
+		if (
+			!matches.every(
+				(match) => isDocumentMetadata(match) || isSectionMetadata(match),
+			)
+		) {
+			this.#logger.error("Failed to retrieve matches.");
+			return [];
+		}
+
+		return matches as Array<SectionMetadata | DocumentMetadata>;
 	}
 }

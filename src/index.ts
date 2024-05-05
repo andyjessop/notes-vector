@@ -14,11 +14,19 @@ import { fileManager } from "./middleware/file-manager";
 import { openAi } from "./middleware/openai";
 import { vectorManager } from "./middleware/vector-manager";
 import { logger } from "./middleware/logger";
+import { keys } from "./middleware/keys";
+import { fileStore } from "./middleware/file-store";
+import { vectorIdsStore } from "./middleware/vector-ids-store";
+export { FileStore } from "./storage/FileStore";
+export { VectorIdsStore } from "./storage/VectorIdsStore";
 
 export const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.use(cors({ origin: ["app://obsidian.md"] }));
 app.use(logger);
+app.use(keys);
+app.use(fileStore);
+app.use(vectorIdsStore);
 app.use(auth);
 app.use(fileManager);
 app.use(openAi);
@@ -114,13 +122,39 @@ export default {
 app.post("/api/related", async (c) => {
 	const query = (await c.req.json()) as TextQuery | VectorQuery;
 	const vectorManager = c.get("VectorManager");
+	const logger = c.get("Logger");
 
 	let results = [];
 
 	if (isTextQuery(query)) {
-		results = await vectorManager.getQueryMatches(query.text, query.type);
+		logger.info(
+			`Searching for related content for text query with params: ${JSON.stringify(
+				{
+					type: query.type,
+					isSection: query.isSection,
+				},
+			)}`,
+		);
+
+		results = await vectorManager.getQueryMatches(
+			query.text,
+			query.type,
+			query.isSection,
+		);
 	} else if (isVectorQuery(query)) {
-		results = await vectorManager.getVectorMatches(query.vector, query.type);
+		logger.info(
+			`Searching for related content for vector query with params: ${JSON.stringify(
+				{
+					type: query.type,
+					isSection: query.isSection,
+				},
+			)}`,
+		);
+		results = await vectorManager.getVectorMatches(
+			query.vector,
+			query.type,
+			query.isSection,
+		);
 	} else {
 		return c.json(
 			{ error: "Query must include `text` or `vector` components." },

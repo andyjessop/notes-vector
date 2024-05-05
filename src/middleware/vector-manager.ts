@@ -4,14 +4,16 @@ import type { Context, Next } from "../types";
 export async function vectorManager(c: Context, next: Next) {
 	const logger = c.get("Logger");
 	const openai = c.get("OpenAi");
+	const vaultKey = c.get("OBSIDIAN_VECTOR_VAULT_KEY");
+	const vectorIdsStore = c.get("VectorIdsStore");
 
 	c.set(
 		"VectorManager",
 		new VectorManager(
-			c.env.KV,
+			vectorIdsStore,
 			logger,
 			openai,
-			c.req.header("OBSIDIAN_VECTOR_VAULT_KEY"),
+			vaultKey,
 			c.env.VECTORIZE_INDEX,
 		),
 	);

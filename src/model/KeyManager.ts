@@ -1,38 +1,27 @@
 import type { Logger } from "../logger/Logger";
 
 export class KeyManager {
-	#kv: KVNamespace;
+	#authorizedKeys: string[];
 	#logger: Logger;
 
-	constructor(kv: KVNamespace, logger: Logger) {
-		this.#kv = kv;
+	constructor(logger: Logger) {
+		this.#authorizedKeys = ["142501103df"];
 		this.#logger = logger;
 	}
 
 	async isAuthorized(key: string, vaultKey: string): Promise<boolean> {
 		try {
-			const authorizedKeys = await this.#kv.get(`${vaultKey}_keys`);
-
 			this.#logger.info(
 				`Checking if key ${key} is authorized with vault key ${vaultKey}.`,
 			);
-
-			if (!authorizedKeys) {
-				this.#logger.error(
-					`Authorized keys are ${authorizedKeys} for vault key ${vaultKey}.`,
-				);
-				return false;
-			}
 
 			this.#logger.info(
 				`Authorized keys entry found for vault key ${vaultKey}.`,
 			);
 
-			const vaultKeys = JSON.parse(authorizedKeys);
-
-			if (!vaultKeys.includes(key)) {
+			if (!this.#authorizedKeys.includes(key)) {
 				this.#logger.error(
-					`Authorized keys are ${authorizedKeys} for vault key ${vaultKey}, ${key} provided.`,
+					`Authorized keys are ${this.#authorizedKeys} for vault key ${vaultKey}, ${key} provided.`,
 				);
 
 				return false;

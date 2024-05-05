@@ -7,18 +7,27 @@ import type { FileManager } from "./model/FileManager";
 import type OpenAI from "openai";
 import type { VectorManager } from "./model/VectorManager";
 import type { Logger } from "./logger/Logger";
+import type { FileStore } from "./storage/FileStore";
+import type { VectorIdsStore } from "./storage/VectorIdsStore";
 
 export type Env = {
 	// biome-ignore lint/suspicious/noExplicitAny: disable
 	AI: any;
+	FILE_STORE: DurableObjectNamespace;
 	KV: KVNamespace;
+	VECTOR_IDS_STORE: DurableObjectNamespace;
 	VECTORIZE_INDEX: VectorizeIndex;
 };
 
 export type Variables = {
 	FileManager: FileManager;
+	FileStore: FileStore;
 	Logger: Logger;
 	OpenAi: OpenAI;
+	OBSIDIAN_VECTOR_VAULT_KEY: string;
+	OBSIDIAN_VECTOR_API_KEY: string;
+	OPENAI_API_KEY: string;
+	VectorIdsStore: VectorIdsStore;
 	VectorManager: VectorManager;
 };
 
@@ -43,14 +52,66 @@ export type RemoteFileWithContent = RemoteFile & {
 };
 
 export type Document = RemoteFileWithContent & {
+	isSection: boolean;
 	id: string;
+};
+
+export type Section = Document & {
+	isSection: boolean;
+	section: {
+		heading: string;
+		level: number;
+		path: string;
+	};
 };
 
 export type DocumentWithVector = Document & {
 	vector: number[];
 };
 
+export type SectionWithVector = Section & {
+	vector: number[];
+};
+
+export type DocumentMetadata = Omit<
+	DocumentWithVector,
+	"content" | "id" | "vector"
+>;
+
+export type SectionMetadata = Omit<
+	SectionWithVector,
+	"content" | "id" | "vector"
+>;
+
+export function isDocumentMetadata(obj: unknown): obj is DocumentMetadata {
+	return (
+		typeof obj === "object" &&
+		obj !== null &&
+		"basename" in obj &&
+		"path" in obj &&
+		"mtime" in obj &&
+		"type" in obj
+	);
+}
+
+export function isSectionMetadata(obj: unknown): obj is SectionMetadata {
+	if (!isDocumentMetadata(obj)) {
+		return false;
+	}
+
+	const alias = obj as SectionMetadata;
+
+	return (
+		typeof alias.section === "object" &&
+		typeof alias.section.heading === "string" &&
+		typeof alias.section.level === "number" &&
+		typeof alias.section.path === "string" &&
+		typeof alias.isSection === "boolean"
+	);
+}
+
 export type BaseQuery = {
+	isSection?: boolean;
 	type?: string;
 };
 

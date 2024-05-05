@@ -2,12 +2,14 @@ import { FileManager } from "../model/FileManager";
 import type { Context, Next } from "../types";
 
 export async function fileManager(c: Context, next: Next) {
+	const fileStore = c.get("FileStore");
+
 	c.set(
 		"FileManager",
 		new FileManager(
-			c.env.KV,
+			fileStore,
 			c.get("Logger"),
-			c.req.header("OBSIDIAN_VECTOR_VAULT_KEY"),
+			c.get("OBSIDIAN_VECTOR_VAULT_KEY"),
 		),
 	);
 

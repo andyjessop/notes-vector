@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import type { Context, Next } from "../types";
 
 export async function openAi(c: Context, next: Next) {
-	const OPENAI_API_KEY = c.req.header("OPENAI_API_KEY");
+	const OPENAI_API_KEY = c.get("OPENAI_API_KEY");
 	const logger = c.get("Logger");
 
 	if (!OPENAI_API_KEY) {
