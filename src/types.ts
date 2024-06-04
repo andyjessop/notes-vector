@@ -13,11 +13,13 @@ import type { VectorIdsStore } from "./storage/VectorIdsStore";
 export type Env = {
 	// biome-ignore lint/suspicious/noExplicitAny: disable
 	AI: any;
-	FILE_STORE: DurableObjectNamespace;
+	FILE_STORE: DurableObjectNamespace<FileStore>;
 	KV: KVNamespace;
-	VECTOR_IDS_STORE: DurableObjectNamespace;
+	VECTOR_IDS_STORE: DurableObjectNamespace<VectorIdsStore>;
 	VECTORIZE_INDEX: VectorizeIndex;
 };
+
+const t = {} as Env["FILE_STORE"];
 
 export type Variables = {
 	FileManager: FileManager;
